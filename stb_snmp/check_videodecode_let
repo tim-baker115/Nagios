@@ -1,0 +1,102 @@
+#!/bin/bash
+#set -x
+#STB=""
+TUNNEL=""
+
+function write_combined () {
+        OLD_FILE=/tmp/snmp_decode_$STB
+        NEW_FILE=/tmp/snmp_decodecompare_$STB
+                if [ -f $NEW_FILE ]; then
+                        mv -f $NEW_FILE $OLD_FILE
+                        ssh root@$TUNNEL "/root/check_server $STB" > /dev/null 2>&1
+                        scp -q root@$TUNNEL:/tmp/decode_$STB $NEW_FILE
+                        check_output
+                else
+                        ssh root@$TUNNEL "/root/check_server $STB" > /dev/null 2>&1
+                        scp -q root@$TUNNEL:/tmp/decode_$STB $NEW_FILE
+                        no_file
+                fi
+}
+
+function no_file () {
+	echo 0
+	exit 0
+}
+
+function check_output () {
+	if [ ! -f $OLD_FILE ]; then
+		echo 0
+		exit 0
+	elif [ ! -f $NEW_FILE ]; then
+		echo 0
+		exit 0
+	fi
+	PREV_VID_DECODES=$(cat $OLD_FILE | sed -n '1p')
+	PREV_VID_ERRORS=$(cat $OLD_FILE | sed -n '2p')
+	PREV_AUDIO_DECODES=$(cat $OLD_FILE | sed -n '3p')
+	PREV_AUDIO_ERRORS=$(cat $OLD_FILE | sed -n '4p')
+	
+	VID_DECODES=$(cat $NEW_FILE | sed -n '1p')
+	VID_ERRORS=$(cat $NEW_FILE | sed -n '2p')
+	AUDIO_DECODES=$(cat $NEW_FILE | sed -n '3p')
+	AUDIO_ERRORS=$(cat $NEW_FILE | sed -n '4p')
+
+	if [ "$method" = "total_video" ]; then
+		echo "$VID_DECODES"
+		exit $VID_DECODES
+	elif [ "$method" = "total_audio" ]; then
+		echo "$AUDIO_DECODES"
+		exit $AUDIO_DECODES
+	elif [ "$method" = "total_video_error" ]; then
+		echo "$VID_ERRORS"
+		exit $VID_ERRORS
+	elif [ "$method" = "total_audio_error" ]; then
+		echo "$AUDIO_ERRORS"
+		exit $AUDIO_ERRORS
+	else
+		check_diff
+	fi
+}
+
+function check_diff () {
+#		let TOTAL_VIDEO_DECODE="$VID_DECODES - $PREV_VID_DECODES"
+#		let TOTAL_AUDIO_DECODE="$AUDIO_DECODES - $PREV_AUDIO_DECODES"
+#		let TOTAL_VIDEO_ERRORS="$VID_ERRORS - $PREV_VID_ERRORS"
+#		let TOTAL_AUDIO_ERRORS="$AUDIO_ERRORS - $PREV_AUDIO_ERRORS"
+		((TOTAL_VIDEO_DECODE="$VID_DECODES - $PREV_VID_DECODES"))
+		((TOTAL_AUDIO_DECODE="$AUDIO_DECODES - $PREV_AUDIO_DECODES"))
+		((TOTAL_VIDEO_ERRORS="$VID_ERRORS - $PREV_VID_ERRORS"))
+		((TOTAL_AUDIO_ERRORS="$AUDIO_ERRORS - $PREV_AUDIO_ERRORS"))
+		#if [ "$?" -gt "0" ]; then
+		#	echo $?
+		#	exit 0
+		#fi
+				if [ "$method" = "last_video" ]; then
+					echo $TOTAL_VIDEO_DECODE
+					exit $TOTAL_VIDEO_DECODE
+				elif [ "$method" = "last_audio" ]; then
+					echo $TOTAL_AUDIO_DECODE
+					exit $TOTAL_AUDIO_DECODE
+				elif [ "$method" = "last_video_error" ]; then
+					echo $TOTAL_VIDEO_ERRORS
+					exit $TOTAL_VIDEO_ERRORS
+				elif [ "$method" = "last_audio_error" ]; then
+					echo $TOTAL_AUDIO_ERRORS
+					exit $TOTAL_AUDIO_ERRORS
+				else
+					exit 0
+				fi
+}
+
+function check_telnet () {
+	ssh root@$TUNNEL "nc -z -w2 $STB 23"
+	if [ $? -gt 0 ]; then
+		echo 0
+		exit 0
+	else
+		write_combined
+	fi
+}
+method=$1
+STB=$2
+check_telnet

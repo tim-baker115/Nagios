@@ -1,0 +1,83 @@
+#!/bin/bash
+
+TOTAL_STREAMS=50
+EXIT_CODE=0
+
+function check_streams () {
+DATA=$(snmpwalk -On -v2c -c $STRING $IP .1.3.6.1.4.1.1166.1.31.7.2.8.2.1.3 | awk '{print $1"="$4}' | head -$TOTAL_STREAMS)
+		for i in $(echo $DATA | head -$TOTAL_STREAMS)
+			do
+				#echo $i
+				COUNT=$(echo $i | awk -F "=" '{print $2}')
+				UUID=$(echo $i | awk -F "=" '{print $1}' | awk -F "." '{print $17}')
+				if [ "$COUNT" -eq "0" ]; then
+					PORT=$(snmpwalk -v2c -c $STRING $IP .1.3.6.1.4.1.1166.1.31.13.2.2.1.7.$UUID | awk '{print $4}')
+					STREAM_IP=$(snmpwalk -v2c -c $STRING $IP .1.3.6.1.4.1.1166.1.31.13.2.2.1.9.$UUID | awk '{print $4}')
+					if [ $PORT -ne 0 ]; then
+						echo -n "$STREAM_IP:$PORT offline "
+						use_ip
+						let EXIT_CODE="$EXIT_CODE+1"
+					fi
+				fi
+			done
+		get_exit
+}
+
+function check_snmp () {
+	snmpwalk -v2c -c $STRING $IP .1.3.6.1.4.1.1166.1.31.7.2.8.2.1.3.1 >/dev/null
+	if [ $? -gt 0 ] ; then
+		echo "Unable to connect to SNMP server, exiting."
+		exit 1
+	else
+		check_streams
+	fi
+}
+
+function get_exit () {
+	if [ $EXIT_CODE -gt 0 ]; then
+		exit 2
+	else
+		echo "OK All streams currently playing."
+		exit 0
+	fi
+}
+
+function check_values () {
+	if [ -z "$IP" ]; then
+		echo "No IP specified."
+		exit 2
+	elif [ -z "$STRING" ]; then
+		echo "No community string specified, exiting."
+		exit 2
+	else
+		check_snmp
+	fi
+}
+
+function use_ip () {
+	IFS=$'\n'
+        if [ $STREAM_IP = "IP_address" ]; then
+                for command in $(ssh root@<ip1> "grep -h -r $PORT /streams/playouts/ | head -n 1");
+                do
+                        ssh root@<ip1> "$command"
+                done
+        elif [ $STREAM_IP = "10.11.11.12" ]; then
+                for command in $(ssh root@<ip2> "grep -h -r $PORT /streams/playouts/ | head -n 1");
+                do
+                        ssh root@<ip2> "$command"
+                done
+	fi
+	get_exit
+}
+
+case "$1" in
+        check)
+                IP=$2
+                STRING=$3
+                check_values
+                ;;
+        *)
+                echo "Usage: $0 {check}"
+                exit 1
+                ;;
+esac

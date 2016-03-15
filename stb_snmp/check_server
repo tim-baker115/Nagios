@@ -1,0 +1,42 @@
+#!/bin/bash
+hostname="$1"
+
+function run_expect () {
+#Needs to be renamed.
+rm -fv /tmp/dirty_$hostname
+rm -fv /tmp/decode_$hostname
+
+/usr/bin/expect <<EOD
+
+log_file /tmp/dirty_$hostname;
+
+#Start
+spawn telnet $hostname
+expect "#"
+set fid [open /tmp/dirty_$hostname w+];
+send "cat /proc/video_status |egrep 'numDecoded|numDecodeErrors'\r\r"
+#set video $expect_out(buffer)
+#puts $fid $video;
+expect "#"
+send "cat /proc/audio_status | egrep 'framesDecoded|frameErrors' | head -2\r\r"
+#set audio $expect_out(buffer)
+#puts $fid $audio;
+expect "#"
+send "exit \r\r"
+expect "#"
+expect eof
+EOD
+}
+
+function clean_input () {
+        if [ -f /tmp/dirty_$hostname ]; then
+                cat /tmp/dirty_$hostname | egrep '(AUDIO|VIDEO)' | awk '{print $3}' | tr -d "\r" > /tmp/decode_$hostname
+        else
+                echo "File does not exist"
+                exit 1
+        fi
+}
+
+run_expect
+clean_input
+

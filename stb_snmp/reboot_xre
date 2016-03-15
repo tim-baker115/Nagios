@@ -1,0 +1,39 @@
+#!/bin/bash
+TUNNEL="backend"
+#IP_LIST="172.31.222.162 172.31.222.109 172.31.222.79 172.31.222.116 172.31.222.121"
+
+
+function ssh_reboot () {
+	IP_LIST=$4
+	if [ -z $IP_LIST ]; then
+		IP_LIST=""
+	fi
+	for STB in $IP_LIST
+	do
+		echo "$(date +'%b %d %T') $(hostname) nagios3: Rebooting $STB...Wish me luck..." >> /var/log/messages
+		ssh root@$TUNNEL "/root/reboot_xre $STB" > /dev/null 2>&1
+	done
+}
+
+case "$1" in
+
+OK)
+	;;
+WARNING)
+	;;
+CRITICAL)
+	case "$2" in
+	SOFT)
+		case "$3" in
+		6)
+			ssh_reboot
+			;;
+		esac
+		;;
+	HARD)
+		ssh_reboot
+		;;
+	esac
+esac
+exit 0
+

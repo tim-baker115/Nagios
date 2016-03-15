@@ -1,0 +1,70 @@
+#!/bin/bash
+#The number of interfaces allowed to have a state of overflow critical.
+CRITICAL_QAM=3
+WARNING_QAM=2
+
+check_streams () {
+	STREAMS=$(snmpwalk -v2c -c $COMMUNITY $IP .1.3.6.1.4.1.1166.1.31.14.2.2.2.1.14 | grep overflow | awk -F "." '{print $2}' | awk '{print $1}')
+	if [ $? -gt 0 ]; then
+		echo "Unable to connect or incorrect value returned"
+		exit 1
+	fi
+	if [ -z "$STREAMS" ]; then
+		echo "OK No overflows currently occuring on any QAMs."
+		exit 0
+	else
+		show_overflow
+	fi
+}
+
+show_overflow () {
+QAM_STATE="0"
+	for QAM in $(echo $STREAMS)
+		do
+			OVERFLOW_INTERFACE=$(snmpget -v2c -c $COMMUNITY $IP .1.3.6.1.4.1.1166.1.31.8.2.11.1.6.$QAM | awk -F ":" '{print $5}')
+			for overflow in $(echo $OVERFLOW_INTERFACE)
+				do
+					QAM_STATE=$((QAM_STATE+1))
+					if [ "$QAM_STATE" -gt "$WARNING_QAM" ] && [ "$QAM_STATE" -ge "$CRITICAL_QAM" ]; then
+						STATE=CRITICAL
+					elif [ "$QAM_STATE" -ge "$WARNING_QAM" ] && [ "$QAM_STATE" -le "$CRITICAL_QAM" ]; then
+						STATE=WARNING
+					else
+						STATE=OK
+					fi
+						echo -n "$overflow overflowing "
+				done
+						if [ "$STATE" = "WARNING" ]; then
+							exit 1
+						elif [ "$STATE" = "CRITICAL" ]; then
+							exit 2
+						else
+							exit 0
+						fi
+		done
+}
+
+check_values () {
+if [ -z $COMMUNITY ]; then
+	echo "Community string not specified."
+	exit 1
+elif [ -z $IP ]; then
+	echo "IP address not specified."
+	exit 1
+else
+	check_streams
+fi
+}
+
+case "$1" in
+        overflow)
+                COMMUNITY=$2
+                IP=$3
+		check_values
+                ;;
+        *)
+                echo "Usage: $0 {overflow}"
+                exit 1
+                ;;
+esac
+

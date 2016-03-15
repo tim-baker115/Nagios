@@ -1,0 +1,181 @@
+#!/bin/bash
+
+FREQUENCY=transmission.127.1.1.1.1.2.3
+WIDTH=transmission.127.1.1.1.1.3.3
+FEC=transmission.127.1.1.1.1.5.3
+DOWNSTREAM_POWER=transmission.127.1.1.1.1.6.3
+SNR=transmission.127.1.1.4.1.5.3
+UPSTREAM_POWER=transmission.127.1.2.2.1.3.2
+TOTAL_LOST_SYNC=transmission.127.1.2.2.1.5.2
+ERROR_LEVEL=0
+
+#Recommendations in accordance with: http://www.dslreports.com/faq/3412
+
+function power_calculator () {
+        DSP_BY_TEN=$(echo "scale=1; $DSP / 10" | bc)
+        USP_BY_TEN=$(echo "scale=1; $USP / 10" | bc)
+        #SNR_BY_TEN=$(echo "scale=1; $SNR / 10" | bc)
+}
+
+function dsp_check () {
+        if [ -z "$DSP" ]; then
+		exit 0
+        else
+		echo $DSP
+		exit $DSP
+        fi
+}
+
+function usp_check () {
+        if [ -z "$USP" ]; then
+		exit 0
+        else
+		echo $USP
+		exit $USP
+        fi
+}
+
+function check_snr () {
+        if [ -z "$SNR" ]; then
+		exit 0
+        else
+		echo $SNR
+		exit $SNR
+        fi
+}
+
+function check_lost () {
+        if [ -z "$LOST" ]; then
+		exit 0
+        else
+		echo $LOST
+		exit $LOST
+        fi
+}
+
+function check_fec () {
+        if [ -z "$FEC" ]; then
+		exit 0
+        else
+		echo $FEC
+		exit $FEC
+        fi
+}
+
+function check_width () {
+        if [ -z "$WIDTH" ]; then
+		exit 0
+        else
+		echo $WIDTH
+		exit $WIDTH
+        fi
+}
+
+function check_values () {
+	if [ -z "$STRING" ]; then
+		echo "No string specified."
+		exit 0
+	elif [ -z "$IP" ]; then
+		echo "No IP specified."
+		exit 0
+	fi
+	if [ -z "$TUNNEL" ]; then
+		check_snmp
+	else
+		tunnel_snmp
+	fi
+}
+
+function get_values () {
+#	FREQ=$(snmpwalk -v2c -c $STRING $IP $FREQUENCY | awk '{print $4}')
+#	WID=$(snmpwalk -v2c -c $STRING $IP $WIDTH | awk '{print $4}')
+#	FEC=$(snmpwalk -v2c -c $STRING $IP $FEC | awk '{print $4}')
+#	DSP=$(snmpwalk -v2c -c $STRING $IP $DOWNSTREAM_POWER | awk '{print $4}')
+#	USP=$(snmpwalk -v2c -c $STRING $IP $UPSTREAM_POWER | awk '{print $4}')
+#	SNR=$(snmpwalk -v2c -c $STRING $IP $SNR | awk '{print $4}')
+#	TOTAL_LOST=$(snmpwalk -v2c -c $STRING $IP $TOTAL_LOST_SYNC | awk '{print $4}')
+	#power_calculator
+	if [ $ARG = "usp" ]; then
+		USP=$(snmpwalk -v2c -c $STRING $IP $UPSTREAM_POWER | awk '{print $4}')
+		usp_check
+	elif [ $ARG = "dsp" ]; then
+		DSP=$(snmpwalk -v2c -c $STRING $IP $DOWNSTREAM_POWER | awk '{print $4}')
+		dsp_check
+	elif [ $ARG = "snr" ]; then
+		SNR=$(snmpwalk -v2c -c $STRING $IP $SNR | awk '{print $4}')
+		check_snr
+	elif [ $ARG = "lost" ]; then
+		LOST=$(snmpwalk -v2c -c $STRING $IP $TOTAL_LOST_SYNC | awk '{print $4}')
+		check_lost
+	elif [ $ARG = "fec" ]; then
+		FEC=$(snmpwalk -v2c -c $STRING $IP $FEC | awk '{print $4}')
+		check_fec
+	elif [ $ARG = "width" ]; then
+		WID=$(snmpwalk -v2c -c $STRING $IP $WIDTH | awk '{print $4}')
+		check_width
+	fi
+}
+
+function check_snmp () {
+        CHECK=.1.3.6.1.2.1.1.9.1.4.1
+        snmpget -v2c -c $STRING $IP $CHECK > /dev/null 2>&1
+        if [ $? -gt "0" ]; then
+                exit 0
+        else
+                get_values
+        fi
+}
+
+function tunnel_snmp () {
+	ssh -o "ExitOnForwardFailure=yes" root@$TUNNEL 'bash -s' < $0 $ARG $STRING $IP
+}
+
+case "$1" in
+	usp)
+		ARG=$1
+		IP=$3
+		STRING=$2
+		TUNNEL=$4
+		check_values
+		;;
+	dsp)
+		ARG=$1
+		IP=$3
+		STRING=$2
+		TUNNEL=$4
+		check_values
+		;;
+	snr)
+		ARG=$1
+		IP=$3
+		STRING=$2
+		TUNNEL=$4
+		check_values
+		;;
+	fec)
+		ARG=$1
+		IP=$3
+		STRING=$2
+		TUNNEL=$4
+		check_values
+		;;
+	lost)
+		ARG=$1
+		IP=$3
+		STRING=$2
+		TUNNEL=$4
+		check_values
+		;;
+	width)
+		ARG=$1
+		IP=$3
+		STRING=$2
+		TUNNEL=$4
+		check_values
+		;;
+	*)
+		echo "Usage: $0 {usp|dsp|snr|lost|fec|width}"
+		exit 0
+		;;
+esac
+

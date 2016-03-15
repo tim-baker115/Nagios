@@ -1,0 +1,79 @@
+#!/bin/bash
+TEST_FILE=/usr/lib/nagios/plugins/test_file
+REMOTE_TEST_FILE=test_file
+
+function backup () {
+LAST_BACKUP_DATE=$(ssh root@$HOST find /streams/playouts/ -ctime -3 | grep "-")
+if [ $LAST_BACKUP_DATE == "." ] || [ -z $LAST_BACKUP_DATE ]; then
+	echo "Critical backup unsuccessful for over 3 days.."
+	exit 2
+else
+	echo "OK at least one backup exists for the last 3 days."
+	exit 0
+fi
+
+}
+
+function mount () {
+if [ ! -f $TEST_FILE ]; then
+	echo "Warning Test file does not exist."
+	exit 1
+fi
+ssh root@$HOST grep -qs '/streams' /proc/mounts > /dev/null
+if [ $? -gt 0 ]; then
+	echo "Critical Streams mount point none functional, unable to connect to server."
+	exit 1
+else
+	/usr/bin/scp $TEST_FILE root@$HOST:/streams/playouts/ > /dev/null
+        if [ $? -gt 0 ]; then
+                echo "Critical Unable to write to mount point."
+                exit 2
+        else
+		ssh root@$HOST rm -f /streams/playouts/$REMOTE_TEST_FILE > /dev/null
+                echo "OK Able to write to mount point."
+                exit 0
+        fi
+fi
+
+}
+
+function processes () {
+STREAMS=$(ssh root@$HOST ps -ef | grep DtPlay | wc -l)
+	if [ $STREAMS -lt 2 ]; then
+		echo "Critical: $STREAMS streams currently running."
+		exit 2
+	else
+		echo "OK $STREAMS streams currently running."
+		exit 0
+	fi
+}
+
+function check_hostname () {
+	if [ -z "$HOST" ]; then
+        	echo "Hostname cannot be null."
+        	exit 1
+	fi
+}
+
+
+case "$1" in
+		mount)
+		HOST=$2
+		check_hostname
+		mount
+		;;
+		backup)
+		HOST=$2
+		check_hostname
+		backup
+		;;
+		processes)
+		HOST=$2
+		check_hostname
+		processes
+		;;
+	        *)
+                echo "Usage: $0 {mount|backup|processes}"
+                exit 1
+                ;;
+esac

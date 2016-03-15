@@ -1,0 +1,156 @@
+#!/bin/bash
+CRITICAL_THRESHOLD=8
+WARN_THRESHOLD=4
+
+function check_server () {
+	fping -c1 -t300 $TUNNEL_SERVER 2>/dev/null 1>/dev/null
+	if [ "$?" = "0" ]; then
+		#Do the next step
+		echo .
+	else
+		echo "CRITICAL Tunnel server currently offline."
+		exit 2
+	fi
+}
+
+function check_values () {
+	if [ -z $TUNNEL ]; then
+		echo "Please specify a server suitable for tunneling."
+		exit 2
+	elif [ -z $STB ]; then
+		echo "Please specify a STB IP address."
+		exit 2
+	else
+		check_telnet
+	fi
+}
+
+function write_combined () {
+        OLD_FILE=/tmp/decode_$STB
+        NEW_FILE=/tmp/decodecompare_$STB
+                if [ -f $NEW_FILE ]; then
+                        mv -f $NEW_FILE $OLD_FILE > /dev/null 2>&1
+                        ssh root@$TUNNEL "/root/check_server $STB" > /dev/null 2>&1
+                        scp -q root@$TUNNEL:/tmp/decode_$STB $NEW_FILE > /dev/null 2>&1
+                        check_output
+                else
+                        ssh root@$TUNNEL "/root/check_server $STB" > /dev/null 2>&1
+                        scp -q root@$TUNNEL:/tmp/decode_$STB $NEW_FILE > /dev/null 2>&1
+                        no_file
+                fi
+}
+
+function no_file () {
+	echo "CRITICAL No comparison possible, original file deleted or initial run."
+	exit 2
+}
+
+function check_output () {
+	PREV_VID_DECODES=$(cat $OLD_FILE | sed -n '1p')
+	PREV_VID_ERRORS=$(cat $OLD_FILE | sed -n '2p')
+	PREV_AUDIO_DECODES=$(cat $OLD_FILE | sed -n '3p')
+	PREV_AUDIO_ERRORS=$(cat $OLD_FILE | sed -n '4p')
+	
+	VID_DECODES=$(cat $NEW_FILE | sed -n '1p')
+	VID_ERRORS=$(cat $NEW_FILE | sed -n '2p')
+	AUDIO_DECODES=$(cat $NEW_FILE | sed -n '3p')
+	AUDIO_ERRORS=$(cat $NEW_FILE | sed -n '4p')
+
+	#Use case!!!
+	if [ ! -s $OLD_FILE ]; then
+		echo "CRITICAL Previous file not found or empty, cannot compare decode values."
+		exit 2
+	elif [ ! -s $NEW_FILE ]; then
+		echo "CRITICAL New file not found or empty, cannot compare decode values."
+		exit 2
+	fi
+
+	if [ -z $PREV_VID_DECODES ]; then
+		echo "CRITICAL Cannot obtain previous video decode value."
+		exit 2
+	elif [ -z $PREV_AUDIO_DECODES ]; then
+		echo "CRITICAL Cannot obtain previous audio decode value."
+		exit 2
+	elif [ -z "$PREV_AUDIO_ERRORS" ]; then
+		echo "CRITICAL Cannot obtain previous audio error value."
+		exit 2
+	elif [ -z $PREV_VID_ERRORS ]; then
+		echo "CRITICAL Cannot obtain previous video error value."
+		exit 2
+	elif [ -z $VID_DECODES ]; then
+		echo "CRITICAL Cannot obtain current video decode value."
+		exit 2
+	elif [ -z $AUDIO_DECODES ]; then
+		echo "CRITICAL Cannot obtain current audio decode value."
+		exit 2
+	elif [ -z "$AUDIO_ERRORS" ]; then
+		echo "CRITICAL Cannot obtain current audio error value."
+		exit 2
+	elif [ -z $VID_ERRORS ]; then
+		echo "CRITICAL Cannot obtain current video decode value."
+		exit 2
+	else
+		check_diff
+	fi
+}
+
+function check_diff () {
+	#If the numbers haven't changed, report an error.
+	if [ $VID_DECODES -le $PREV_VID_DECODES ] || [ $VID_DECODES = 0 ]; then
+		echo "Video not decoding (errors currently Video:$VID_ERRORS, Audio:$AUDIO_ERRORS)."
+		exit 2
+	elif [ $AUDIO_DECODES -le $PREV_AUDIO_DECODES ] || [ $AUDIO_DECODES = 0 ]; then
+		echo "Audio not decoding (errors currently Video:$VID_ERRORS, Audio:$AUDIO_ERRORS)."
+		exit 2
+	else
+		#If they have changed, report by how much.
+		let TOTAL_VIDEO_DECODE="$VID_DECODES - $PREV_VID_DECODES"
+		let TOTAL_AUDIO_DECODE="$AUDIO_DECODES - $PREV_AUDIO_DECODES"
+		let TOTAL_VIDEO_ERRORS="$VID_ERRORS - $PREV_VID_ERRORS"
+		let TOTAL_AUDIO_ERRORS="$AUDIO_ERRORS - $PREV_AUDIO_ERRORS"
+
+		#If any of the values are null after doing the math, report a null value error.
+		if [ -z $TOTAL_VIDEO_DECODE ] || [ -z $TOTAL_AUDIO_DECODE ]; then
+			echo "CRITICAL Total video/audio decode value currently null (errors currently Video:$TOTAL_VIDEO_ERRORS, Audio:$TOTAL_AUDIO_ERRORS)."
+			exit 2
+		elif [ -z $TOTAL_VIDEO_ERRORS ] || [ -z $TOTAL_AUDIO_ERRORS ]; then
+			echo "WARNING Total video/audio error value currently null. $TOTAL_VIDEO_DECODE video decodes, $TOTAL_AUDIO_DECODE audio decodes."
+			exit 1
+		else
+			#If the total number of errors received since the last check is massively high, report either a critical or wanring state.
+			if [ $TOTAL_VIDEO_ERRORS -ge $WARN_THRESHOLD -a $TOTAL_VIDEO_ERRORS -lt $CRITICAL_THRESHOLD ] || [ $TOTAL_AUDIO_ERRORS -ge $WARN_THRESHOLD -a $TOTAL_VIDEO_ERRORS -lt $CRITICAL_THRESHOLD ]; then
+				echo "CRITICAL Video/audio decode errors currently exceeding critical threshold (errors currently Video:$TOTAL_VIDEO_ERRORS, Audio:$TOTAL_AUDIO_ERRORS)."
+				exit 2
+			elif [ "$TOTAL_VIDEO_ERRORS" -ge "$CRITICAL_THRESHOLD" ] || [ "$TOTAL_AUDIO_ERRORS" -ge "$CRITICAL_THRESHOLD" ]; then
+				echo "WARNING Video/audio decode errors currently exceeding warning threshold (errors currently Video:$TOTAL_VIDEO_ERRORS, Audio:$TOTAL_AUDIO_ERRORS)."
+				exit 1
+			else
+				#Otherwise report a fully functional system (reporting totals as well~).
+				echo "OK $TOTAL_VIDEO_DECODE video decodes ($VID_DECODES total), $TOTAL_AUDIO_DECODE audio decodes ($AUDIO_DECODES total). Errors Video:$TOTAL_VIDEO_ERRORS ($VID_ERRORS total), Audio:$TOTAL_AUDIO_ERRORS ($AUDIO_ERRORS total)."
+				exit 0
+			fi
+		fi
+	fi
+}
+
+function check_telnet () {
+	ssh root@$TUNNEL "nc -z -w2 $STB 23"
+	if [ $? -gt 0 ]; then
+		echo "CRITICAL Unable to telnet to $STB."
+		exit 2
+	else
+		write_combined
+	fi
+}
+
+case "$1" in
+	combined)
+		TUNNEL=$2
+		STB=$3
+		check_values
+		;;
+	*)
+                echo "Usage: $0 {audio|video|combined}"
+                exit 1
+                ;;
+esac

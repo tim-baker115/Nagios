@@ -1,0 +1,39 @@
+#!/bin/bash
+#STB=""
+TUNNEL="backend"
+#FILENAME="/tmp/frequency_$(STB)"
+
+function write_combined () {
+		FILENAME="/tmp/frequency_$STB"
+		ssh root@$TUNNEL "/root/check_frequency $STB" > /dev/null 2>&1
+		scp -q root@$TUNNEL:$FILENAME $FILENAME
+		if [ -f $FILENAME ]; then
+			check_output
+		else
+			no_file
+		fi
+}
+
+function no_file () {
+	exit 0
+}
+
+function check_output () {
+	CODE=$(cat $FILENAME)
+	echo $CODE
+#	exit $CODE
+	rm -f $FILENAME > /dev/null 2>&1
+}
+
+function check_telnet () {	
+	ssh root@$TUNNEL "nc -z -w2 $STB 23"
+	if [ $? -gt "0" ]; then
+		exit 0
+	else
+		write_combined
+	fi
+}
+
+
+STB=$1
+check_telnet
